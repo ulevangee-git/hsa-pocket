@@ -10,12 +10,14 @@ export function validate(s){
 const equal=(a,b)=>timingSafeEqual(createHash('sha256').update(a).digest(),createHash('sha256').update(b).digest());
 const signature=v=>createHmac('sha256',process.env.SESSION_SECRET).update(v).digest('base64url');
 function authorized(req){const token=(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith('hsa_session='))?.slice(12);if(!token)return false;const parts=token.split('.');return parts.length===3&&Number(parts[0])>Date.now()&&equal(parts[2],signature(parts[0]+'.'+parts[1]));}
-async function redis(command){const response=await fetch(process.env.UPSTASH_REDIS_REST_URL,{method:'POST',headers:{Authorization:'Bearer '+process.env.UPSTASH_REDIS_REST_TOKEN,'Content-Type':'application/json'},body:JSON.stringify(command)});const data=await response.json();if(!response.ok||data.error)throw Error('Storage unavailable');return data.result;}
+const redisUrl=()=>process.env.UPSTASH_REDIS_REST_URL||process.env.KV_REST_API_URL;
+const redisToken=()=>process.env.UPSTASH_REDIS_REST_TOKEN||process.env.KV_REST_API_TOKEN;
+async function redis(command){const response=await fetch(redisUrl(),{method:'POST',headers:{Authorization:'Bearer '+redisToken(),'Content-Type':'application/json'},body:JSON.stringify(command)});const data=await response.json();if(!response.ok||data.error)throw Error('Storage unavailable');return data.result;}
 export default async function handler(req,res){
  res.setHeader('Cache-Control','no-store');
  const send=(status,data)=>res.status(status).json(data);
  if(!['GET','POST','PUT','DELETE'].includes(req.method))return send(405,{error:'Method not allowed'});
- if(!process.env.HSA_PASSCODE||process.env.HSA_PASSCODE.length<8||!process.env.SESSION_SECRET||process.env.SESSION_SECRET.length<32||!process.env.UPSTASH_REDIS_REST_URL||!process.env.UPSTASH_REDIS_REST_TOKEN)return send(503,{error:'Cloud setup is incomplete. See the setup guide.'});
+ if(!process.env.HSA_PASSCODE||process.env.HSA_PASSCODE.length<8||!process.env.SESSION_SECRET||process.env.SESSION_SECRET.length<32||!redisUrl()||!redisToken())return send(503,{error:'Cloud setup is incomplete. See the setup guide.'});
  if(req.method!=='GET'&&req.headers.origin!==`https://${req.headers.host}`)return send(403,{error:'Request origin rejected'});
  try{
   if(req.method==='POST'){
